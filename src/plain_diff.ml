@@ -33,7 +33,34 @@
    Basic algorithm described by Eugene W.Myers in: "An O(ND) Difference Algorithm and Its
    Variations" *)
 
-open Base
+module With_return = struct
+  type 'a return = { return : 'b. 'a -> 'b } [@@unboxed]
+
+  let with_return (type a) f =
+    let module M = struct
+      (* Raised to indicate ~return was called.  Local so that the exception is tied to a
+        particular call of [with_return]. *)
+      exception Return of a
+    end
+    in
+    let is_alive = ref true in
+    let return a =
+      if not !is_alive
+      then failwith "use of [return] from a [with_return] that already returned";
+      raise_notrace (M.Return a)
+    in
+    try
+      let a = f { return } in
+      is_alive := false;
+      a
+    with
+    | exn ->
+      is_alive := false;
+      (match exn with
+      | M.Return a -> a
+      | _ -> raise exn)
+  ;;
+end
 
 (* A partition is the midpoint of the shortest edit script for a specified portion of two
    vectors.
@@ -116,7 +143,7 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
            let x = if tlo >= thi then tlo + 1 else thi in
            let x, y =
              let rec loop ~xv ~yv ~xlim ~ylim ~x ~y =
-               if x < xlim && y < ylim && phys_equal (xv x) (yv y)
+               if x < xlim && y < ylim && xv x == yv y
                then loop ~xv ~yv ~xlim ~ylim ~x:(x + 1) ~y:(y + 1)
                else x, y
              in
@@ -132,14 +159,14 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
       let bmin =
         if bmin > dmin
         then (
-          bd.(sh + bmin - 2) <- Int.max_value;
+          bd.(sh + bmin - 2) <- max_int;
           bmin - 1)
         else bmin + 1
       in
       let bmax =
         if bmax < dmax
         then (
-          bd.(sh + bmax + 2) <- Int.max_value;
+          bd.(sh + bmax + 2) <- max_int;
           bmax + 1)
         else bmax - 1
       in
@@ -152,7 +179,7 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
            let x = if tlo < thi then tlo else thi - 1 in
            let x, y =
              let rec loop ~xv ~yv ~xoff ~yoff ~x ~y =
-               if x > xoff && y > yoff && phys_equal (xv (x - 1)) (yv (y - 1))
+               if x > xoff && y > yoff && xv (x - 1) == yv (y - 1)
                then loop ~xv ~yv ~xoff ~yoff ~x:(x - 1) ~y:(y - 1)
                else x, y
              in
@@ -174,7 +201,7 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
             if d < fmin
             then fxybest, fxbest
             else (
-              let x = Int.min fd.(sh + d) xlim in
+              let x = min fd.(sh + d) xlim in
               let y = x - d in
               let x, y = if ylim < y then ylim + d, ylim else x, y in
               let fxybest, fxbest =
@@ -190,7 +217,7 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
             if d < bmin
             then bxybest, bxbest
             else (
-              let x = Int.max xoff bd.(sh + d) in
+              let x = max xoff bd.(sh + d) in
               let y = x - d in
               let x, y = if y < yoff then yoff + d, yoff else x, y in
               let bxybest, bxbest =
@@ -198,7 +225,7 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
               in
               loop ~d:(d - 2) ~bxybest ~bxbest)
           in
-          loop ~d:bmax ~bxybest:Int.max_value ~bxbest:bmax
+          loop ~d:bmax ~bxybest:max_int ~bxbest:bmax
         in
         if xlim + ylim - bxybest < fxybest - (xoff + yoff)
         then
@@ -221,8 +248,8 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
 ;;
 
 let diff_loop ~cutoff a ai b bi n m =
-  let fd = Array.create ~len:(n + m + 3) 0 in
-  let bd = Array.create ~len:(n + m + 3) 0 in
+  let fd = Array.make (n + m + 3) 0 in
+  let bd = Array.make (n + m + 3) 0 in
   let sh = m + 1 in
   let too_expensive =
     match cutoff with
@@ -232,12 +259,12 @@ let diff_loop ~cutoff a ai b bi n m =
       let rec loop diags too_expensive =
         if diags = 0 then too_expensive else loop (diags asr 2) (too_expensive lsl 1)
       in
-      Int.max 4096 (loop diags 1)
+      max 4096 (loop diags 1)
   in
   let xvec i = a.(ai.(i)) in
   let yvec j = b.(bi.(j)) in
-  let chng1 = Array.create ~len:(Array.length a) true in
-  let chng2 = Array.create ~len:(Array.length b) true in
+  let chng1 = Array.make (Array.length a) true in
+  let chng2 = Array.make (Array.length b) true in
   for i = 0 to n - 1 do
     chng1.(ai.(i)) <- false
   done;
@@ -247,7 +274,7 @@ let diff_loop ~cutoff a ai b bi n m =
   let rec loop ~xoff ~xlim ~yoff ~ylim ~find_minimal =
     let xoff, yoff =
       let rec loop ~xoff ~yoff =
-        if xoff < xlim && yoff < ylim && phys_equal (xvec xoff) (yvec yoff)
+        if xoff < xlim && yoff < ylim && xvec xoff == yvec yoff
         then loop ~xoff:(xoff + 1) ~yoff:(yoff + 1)
         else xoff, yoff
       in
@@ -255,7 +282,7 @@ let diff_loop ~cutoff a ai b bi n m =
     in
     let xlim, ylim =
       let rec loop ~xlim ~ylim =
-        if xlim > xoff && ylim > yoff && phys_equal (xvec (xlim - 1)) (yvec (ylim - 1))
+        if xlim > xoff && ylim > yoff && xvec (xlim - 1) == yvec (ylim - 1)
         then loop ~xlim:(xlim - 1) ~ylim:(ylim - 1)
         else xlim, ylim
       in
@@ -299,16 +326,16 @@ let diff_loop ~cutoff a ai b bi n m =
    items of [a] and [b] so that all equal items point to the same unique item.  All item
    comparisons in the main algorithm can therefore be done with [phys_equal] instead of
    [=], which can improve speed much. *)
-let make_indexer hashable a b =
+let make_indexer a b =
   let n = Array.length a in
-  let htb = Hashtbl.create hashable ~size:(10 * Array.length b) in
+  let htb = Hashtbl.create (10 * Array.length b) in
   Array.iteri
-    ~f:(fun i e ->
+    (fun i e ->
       match Hashtbl.find htb e with
-      | Some v -> b.(i) <- v
-      | None -> Hashtbl.add_exn htb ~key:e ~data:e)
+      | v -> b.(i) <- v
+      | exception _ -> Hashtbl.add htb e e)
     b;
-  let ai = Array.create ~len:n 0 in
+  let ai = Array.make n 0 in
   let k =
     let rec loop i k =
       if i = n
@@ -316,29 +343,29 @@ let make_indexer hashable a b =
       else (
         let k =
           match Hashtbl.find htb a.(i) with
-          | Some v ->
+          | v ->
             a.(i) <- v;
             ai.(k) <- i;
             k + 1
-          | None -> k
+          | exception _ -> k
         in
         loop (i + 1) k)
     in
     loop 0 0
   in
-  Array.sub ai ~pos:0 ~len:k
+  Array.sub ai 0 k
 ;;
 
-let f ~cutoff ~hashable a b =
-  let ai = make_indexer hashable a b in
-  let bi = make_indexer hashable b a in
+let f ~cutoff a b =
+  let ai = make_indexer a b in
+  let bi = make_indexer b a in
   let n = Array.length ai in
   let m = Array.length bi in
   diff_loop ~cutoff a ai b bi n m
 ;;
 
-let iter_matches ?cutoff ~f:ff ~hashable a b =
-  let d1, d2 = f ~cutoff ~hashable a b in
+let iter_matches ?cutoff ~f:ff a b =
+  let d1, d2 = f ~cutoff a b in
   let rec aux i1 i2 =
     if i1 >= Array.length d1 || i2 >= Array.length d2
     then ()

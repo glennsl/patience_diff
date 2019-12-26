@@ -1,2 +1,1 @@
-(library (name patience_diff_lib) (public_name patience_diff)
- (libraries base) (preprocess (pps ppx_jane)))
+(library (name patience_diff_lib) (public_name patience_diff))

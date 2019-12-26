@@ -11,7 +11,6 @@
 val iter_matches
   :  ?cutoff:int
   -> f:(int * int -> unit)
-  -> hashable:'a Base.Hashtbl.Key.t
   -> 'a array
   -> 'a array
   -> unit
